@@ -1,0 +1,49 @@
+name: Sync from upstream
+
+on:
+  schedule:
+    - cron: '15 6 * * *'    # daily — chains into publish-ghcr.yml on push
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: ⚙️  Configure git identity
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "terafin sync bot"
+
+      - name: 🔗 Add upstream remote
+        run: git remote add upstream https://github.com/joeblack2k/RetroSaveManager.git
+
+      - name: 🔄 Fetch upstream
+        run: git fetch upstream main --tags
+
+      - name: 📐 Show divergence (pre-rebase)
+        run: |
+          echo "  upstream/main: $(git log upstream/main --oneline -1)"
+          echo "  origin/main:   $(git log origin/main --oneline -1)"
+          echo "  terafin commits on top:"
+          git log --oneline upstream/main..HEAD | sed 's/^/    /' || true
+
+      - name: 🔁 Rebase fork commits onto upstream/main
+        run: git rebase upstream/main
+
+      - name: 📤 Push (force-with-lease)
+        run: git push --force-with-lease origin main
+
+      - name: ✅ Show new state
+        run: |
+          echo "  new HEAD: $(git log --oneline -1)"
+          echo "  fork commits preserved on top:"
+          git log --oneline upstream/main..HEAD | sed 's/^/    /' || true
