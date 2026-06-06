@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: write          # workflow_dispatch trigger (publish step) 403s without this
   contents: write
   pull-requests: read
 
