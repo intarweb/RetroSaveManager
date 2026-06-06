@@ -54,6 +54,7 @@ jobs:
           fi
 
       - name: 🌿 Regenerate intarweb-dev = main + open-PR cherry-picks
+        id: regen
         run: |
           git checkout -B intarweb-dev main
           while read num branch title; do
@@ -76,10 +77,30 @@ jobs:
             echo "::endgroup::"
           done < /tmp/prs.txt
 
+          # Did intarweb-dev's TREE actually change vs the existing remote?
+          # Compare trees (content), not SHAs (which differ each run because
+          # cherry-pick rewrites committer timestamps).
+          if git rev-parse origin/intarweb-dev^{tree} >/dev/null 2>&1; then
+            OLD_TREE=$(git rev-parse origin/intarweb-dev^{tree})
+            NEW_TREE=$(git rev-parse intarweb-dev^{tree})
+            if [ "$OLD_TREE" = "$NEW_TREE" ]; then
+              echo "  - intarweb-dev tree unchanged; skipping push + publish trigger"
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "  - intarweb-dev tree changed; will push + trigger publish"
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "  - intarweb-dev did not exist on origin; will push + trigger publish"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: 📤 Force-push intarweb-dev
+        if: steps.regen.outputs.changed == 'true'
         run: git push --force-with-lease origin intarweb-dev
 
       - name: 🚀 Trigger publish on intarweb-dev
+        if: steps.regen.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
