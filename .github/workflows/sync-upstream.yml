@@ -2,7 +2,7 @@ name: Sync from upstream + auto-regen intarweb-dev
 
 on:
   schedule:
-    - cron: '45 6 * * *'    # daily — chains into publish-ghcr.yml on push
+    - cron: '*/5 * * * *'    # daily — chains into publish-ghcr.yml on push
   workflow_dispatch:
 
 permissions:
@@ -78,6 +78,12 @@ jobs:
 
       - name: 📤 Force-push intarweb-dev
         run: git push --force-with-lease origin intarweb-dev
+
+      - name: 🚀 Trigger publish on intarweb-dev
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run "Publish GHCR Images" --repo ${{ github.repository }} --ref intarweb-dev
 
       - name: ✅ Show final state
         run: |
