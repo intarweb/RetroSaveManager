@@ -2,7 +2,7 @@ name: Publish GHCR Images
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "intarweb-dev"]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -47,7 +47,7 @@ jobs:
           tags: |
             type=sha,format=long,prefix=sha-
             type=ref,event=tag
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/intarweb-dev' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -60,7 +60,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
       - name: Verify latest label revision
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/intarweb-dev'
         env:
           EXPECTED_SHA: ${{ github.sha }}
         run: |
