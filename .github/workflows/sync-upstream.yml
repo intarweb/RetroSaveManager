@@ -67,7 +67,7 @@ jobs:
               echo "  - no unique commits — already on intarweb-dev (likely merged upstream); skipping"
             else
               for c in $COMMITS; do
-                if ! git cherry-pick "$c"; then
+                if ! git cherry-pick --allow-empty --keep-redundant-commits "$c"; then
                   echo "::error::CONFLICT cherry-picking $c from PR #$num. intarweb-dev unchanged. Manual resolve required."
                   git cherry-pick --abort || true
                   exit 1
