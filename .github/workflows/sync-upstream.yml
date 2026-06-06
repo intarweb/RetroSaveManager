@@ -43,7 +43,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh api "repos/joeblack2k/RetroSaveManager/pulls?state=open&per_page=100" \
+          gh api --paginate "repos/joeblack2k/RetroSaveManager/pulls?state=open&per_page=100" \
             --jq '.[] | select(.head.repo.owner.login == "${{ github.repository_owner }}") | "\(.number) \(.head.ref) \(.title)"' \
             | sort -n > /tmp/prs.txt
           if [ ! -s /tmp/prs.txt ]; then
