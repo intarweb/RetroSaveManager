@@ -1,12 +1,13 @@
-name: Sync from upstream
+name: Sync from upstream + auto-regen intarweb-dev
 
 on:
   schedule:
-    - cron: '15 6 * * *'    # daily — chains into publish-ghcr.yml on push
+    - cron: '45 6 * * *'    # daily — chains into publish-ghcr.yml on push
   workflow_dispatch:
 
 permissions:
   contents: write
+  pull-requests: read
 
 jobs:
   sync:
@@ -21,29 +22,66 @@ jobs:
       - name: ⚙️  Configure git identity
         run: |
           git config user.email "actions@github.com"
-          git config user.name "terafin sync bot"
+          git config user.name "intarweb sync bot"
 
       - name: 🔗 Add upstream remote
         run: git remote add upstream https://github.com/joeblack2k/RetroSaveManager.git
 
-      - name: 🔄 Fetch upstream
-        run: git fetch upstream main --tags
-
-      - name: 📐 Show divergence (pre-rebase)
+      - name: 🔄 Fetch upstream + all fork branches
         run: |
-          echo "  upstream/main: $(git log upstream/main --oneline -1)"
-          echo "  origin/main:   $(git log origin/main --oneline -1)"
-          echo "  terafin commits on top:"
-          git log --oneline upstream/main..HEAD | sed 's/^/    /' || true
+          git fetch upstream main --tags
+          git fetch origin --prune
 
-      - name: 🔁 Rebase fork commits onto upstream/main
-        run: git rebase upstream/main
-
-      - name: 📤 Push (force-with-lease)
-        run: git push --force-with-lease origin main
-
-      - name: ✅ Show new state
+      - name: 🔁 Rebase main onto upstream
         run: |
-          echo "  new HEAD: $(git log --oneline -1)"
-          echo "  fork commits preserved on top:"
-          git log --oneline upstream/main..HEAD | sed 's/^/    /' || true
+          git checkout main
+          git rebase upstream/main
+          git push --force-with-lease origin main
+
+      - name: 🔍 Discover open PRs from intarweb to upstream
+        id: prs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "repos/joeblack2k/RetroSaveManager/pulls?state=open&per_page=100" \
+            --jq '.[] | select(.head.repo.owner.login == "${{ github.repository_owner }}") | "\(.number) \(.head.ref) \(.title)"' \
+            | sort -n > /tmp/prs.txt
+          if [ ! -s /tmp/prs.txt ]; then
+            echo "  No open PRs from ${{ github.repository_owner }} to upstream — intarweb-dev will == main"
+          else
+            echo "  Open PRs to cherry-pick onto intarweb-dev:"
+            sed 's/^/    /' /tmp/prs.txt
+          fi
+
+      - name: 🌿 Regenerate intarweb-dev = main + open-PR cherry-picks
+        run: |
+          git checkout -B intarweb-dev main
+          while read num branch title; do
+            [ -z "$num" ] && continue
+            echo "::group::PR #$num — $branch ($title)"
+            git fetch origin "$branch" || { echo "  ✗ failed to fetch origin/$branch"; exit 1; }
+            COMMITS=$(git log --reverse --format=%H "intarweb-dev..origin/$branch")
+            if [ -z "$COMMITS" ]; then
+              echo "  - no unique commits — already on intarweb-dev (likely merged upstream); skipping"
+            else
+              for c in $COMMITS; do
+                if ! git cherry-pick "$c"; then
+                  echo "::error::CONFLICT cherry-picking $c from PR #$num. intarweb-dev unchanged. Manual resolve required."
+                  git cherry-pick --abort || true
+                  exit 1
+                fi
+              done
+              echo "  ✓ applied $(echo "$COMMITS" | wc -w) commits from PR #$num"
+            fi
+            echo "::endgroup::"
+          done < /tmp/prs.txt
+
+      - name: 📤 Force-push intarweb-dev
+        run: git push --force-with-lease origin intarweb-dev
+
+      - name: ✅ Show final state
+        run: |
+          echo "  main HEAD: $(git log main --oneline -1)"
+          echo "  intarweb-dev HEAD:  $(git log intarweb-dev --oneline -1)"
+          echo "  intarweb-dev commits ahead of upstream/main:"
+          git log --oneline upstream/main..intarweb-dev | sed 's/^/    /' || true
