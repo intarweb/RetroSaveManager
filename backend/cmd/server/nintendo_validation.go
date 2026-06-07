@@ -66,18 +66,19 @@ func validateNintendoRawSave(input saveCreateInput, detection saveSystemDetectio
 		})
 	case "gba":
 		return validateStrictRawSaveClass(input, detection, strictRawSaveValidationProfile{
-			SystemSlug:          "gba",
-			DisplayName:         "gba",
-			ParserID:            "gba-raw-backup",
-			AllowedExts:         map[string]struct{}{"sav": {}, "srm": {}, "sa1": {}},
-			AllowedSizes:        strictRawGBASizes,
-			RequireROMSHA1:      true,
-			RequireTrustedMatch: true,
-			RequireSignature:    hasGBASignature,
-			SignatureReason:     "gba validated payload signature",
-			RejectBlank:         true,
-			SparseWarningCutoff: 16,
-			Warning:             "No structural GBA save decoder is available yet beyond backup-library signature validation",
+			SystemSlug:                       "gba",
+			DisplayName:                      "gba",
+			ParserID:                         "gba-raw-backup",
+			AllowedExts:                      map[string]struct{}{"sav": {}, "srm": {}, "sa1": {}},
+			AllowedSizes:                     strictRawGBASizes,
+			RequireROMSHA1:                   true,
+			RequireTrustedMatch:              true,
+			RequireSignature:                 hasGBASignature,
+			SignatureReason:                  "gba validated payload signature",
+			SignatureAdvisoryWithHelperTrust: true,
+			RejectBlank:                      true,
+			SparseWarningCutoff:              16,
+			Warning:                          "No structural GBA save decoder is available yet beyond backup-library signature validation",
 		})
 	case "nes":
 		return validateStrictRawSaveClass(input, detection, strictRawSaveValidationProfile{

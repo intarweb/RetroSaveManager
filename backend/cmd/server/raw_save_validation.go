@@ -31,9 +31,19 @@ type strictRawSaveValidationProfile struct {
 	RequireHelperOrStore bool
 	RequireSignature     func([]byte) bool
 	SignatureReason      string
-	RejectBlank          bool
-	SparseWarningCutoff  int
-	Warning              string
+	// SignatureAdvisoryWithHelperTrust: when true, a failing RequireSignature check
+	// is downgraded from reject to warning IF (a) detection.Evidence.HelperTrusted
+	// is true AND (b) rom_sha1 is present AND (c) the payload is non-blank. This
+	// enables saves from authenticated helpers whose underlying emulators don't
+	// embed the library signature footer the validator would prefer to see — most
+	// notably RetroArch's libretro-mGBA core, which is the dominant modern GBA
+	// emulation path (Steam Deck / RetroDECK) and does NOT write the
+	// EEPROM_V/SRAM_V/FLASH_V/FLASH1M_V/FLASH512_V strings that standalone
+	// mGBA and VBA-M do. See issue #7.
+	SignatureAdvisoryWithHelperTrust bool
+	RejectBlank                      bool
+	SparseWarningCutoff              int
+	Warning                          string
 }
 
 func validateStrictRawSaveClass(input saveCreateInput, detection saveSystemDetectionResult, profile strictRawSaveValidationProfile) consoleValidationResult {
@@ -92,14 +102,27 @@ func validateStrictRawSaveClass(input saveCreateInput, detection saveSystemDetec
 			RejectReason: fmt.Sprintf("%s raw saves require trusted helper or stored system evidence", profile.SystemSlug),
 		}
 	}
+	signatureAdvisoryDowngraded := false
+	stats := analyzeRawSavePayload(input.Payload, profile.SparseWarningCutoff)
 	if profile.RequireSignature != nil && !profile.RequireSignature(input.Payload) {
-		return consoleValidationResult{
-			Rejected:     true,
-			RejectReason: fmt.Sprintf("%s raw save is missing a validated payload signature", profile.DisplayName),
+		// Optional escape hatch: if the profile allows the signature requirement
+		// to be advisory under sufficient trust, and ALL of the trust conditions
+		// hold (HelperTrusted + rom_sha1 present + non-blank payload), downgrade
+		// the rejection to a warning instead. The signature stays a hard reject
+		// for anonymous uploads or uploads without rom_sha1.
+		canDowngrade := profile.SignatureAdvisoryWithHelperTrust &&
+			detection.Evidence.HelperTrusted &&
+			strings.TrimSpace(input.ROMSHA1) != "" &&
+			!stats.BlankZero && !stats.BlankFF
+		if !canDowngrade {
+			return consoleValidationResult{
+				Rejected:     true,
+				RejectReason: fmt.Sprintf("%s raw save is missing a validated payload signature", profile.DisplayName),
+			}
 		}
+		signatureAdvisoryDowngraded = true
 	}
 
-	stats := analyzeRawSavePayload(input.Payload, profile.SparseWarningCutoff)
 	if profile.RejectBlank && stats.BlankZero {
 		return consoleValidationResult{
 			Rejected:     true,
@@ -135,12 +158,23 @@ func validateStrictRawSaveClass(input saveCreateInput, detection saveSystemDetec
 		evidence = append(evidence, "declared system")
 	}
 	if profile.RequireSignature != nil && strings.TrimSpace(profile.SignatureReason) != "" {
-		evidence = append(evidence, profile.SignatureReason)
+		if signatureAdvisoryDowngraded {
+			evidence = append(evidence, profile.SignatureReason+" (advisory: missing — accepted under helper trust)")
+		} else {
+			evidence = append(evidence, profile.SignatureReason)
+		}
 	}
 
 	warnings := []string(nil)
 	if strings.TrimSpace(profile.Warning) != "" {
 		warnings = append(warnings, profile.Warning)
+	}
+	if signatureAdvisoryDowngraded {
+		warnings = append(warnings,
+			fmt.Sprintf("%s save accepted without the standard library signature footer; "+
+				"trust derived from authenticated helper + rom_sha1 + non-blank payload. "+
+				"Common for RetroArch / libretro cores that don't write the footer.",
+				profile.DisplayName))
 	}
 	if stats.SparseCutoff > 0 && stats.NonZero <= stats.SparseCutoff {
 		warnings = append(warnings, "Payload is extremely sparse and only raw media validation is available")
