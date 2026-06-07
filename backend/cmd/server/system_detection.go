@@ -194,7 +194,7 @@ type saveSystemDetectionResult struct {
 	Evidence   saveDetectionEvidence
 }
 
-var numberedSaveSlotTitlePattern = regexp.MustCompile(`^\s*[0-9]{1,3}\s*-\s*[A-Za-z]`)
+var numberedSaveSlotTitlePattern = regexp.MustCompile(`(?i)^\s*[0-9]{1,3}\s*-\s*(autosave|save|slot|auto|backup|mission|player|file|state|memory|sp[0-9]*)\b`)
 
 func allSupportedSystems() []system {
 	out := make([]system, 0, len(supportedSystemsBySlug))
