@@ -105,7 +105,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh workflow run "Publish GHCR Images" --repo ${{ github.repository }} --ref intarweb-dev
+          gh workflow run "Publish GHCR Images" --repo ${{ github.repository }} --ref intarweb-dev || echo "::warning::publish-workflow dispatch failed (probably disabled or stale); sync still succeeded"
 
       - name: ✅ Show final state
         run: |
