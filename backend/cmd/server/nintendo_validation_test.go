@@ -245,6 +245,72 @@ func TestNormalizeSaveInputRejectsBlankTrustedNeoGeoSave(t *testing.T) {
 	}
 }
 
+func TestNormalizeSaveInputAcceptsTinyGameBoyRTCFile(t *testing.T) {
+	a := &app{}
+	for _, size := range []int{8, 13, 32, 48, 64} {
+		payload := buildNonBlankPayload(size, 0xA5)
+		result := a.normalizeSaveInputDetailed(saveCreateInput{
+			Filename:            "Pokemon - Crystal Version (USA, Europe) (Rev 1).rtc",
+			Payload:             payload,
+			Game:                game{Name: "Pokemon - Crystal Version"},
+			Format:              "sram",
+			ROMSHA1:             "pokemon-crystal-rom",
+			SlotName:            "default",
+			SystemSlug:          "gameboy",
+			TrustedHelperSystem: true,
+		})
+		if result.Rejected {
+			t.Fatalf("expected gameboy .rtc payload of %d bytes to be accepted, got reject=%q", size, result.RejectReason)
+		}
+		if result.Input.Inspection == nil || result.Input.Inspection.ParserID != "gameboy-raw-sram" {
+			t.Fatalf("expected gameboy-raw-sram inspection for %d-byte .rtc, got %+v", size, result.Input.Inspection)
+		}
+		if got := result.Input.Inspection.SemanticFields["rawSaveKind"]; got != "Game Boy real-time clock data" {
+			t.Fatalf("expected RTC raw save kind for %d-byte .rtc, got %+v", size, result.Input.Inspection.SemanticFields)
+		}
+	}
+}
+
+func TestNormalizeSaveInputRejectsTinyGameBoySRMFile(t *testing.T) {
+	a := &app{}
+	result := a.normalizeSaveInputDetailed(saveCreateInput{
+		Filename:            "Pokemon - Crystal Version (USA, Europe) (Rev 1).srm",
+		Payload:             buildNonBlankPayload(8, 0xA5),
+		Game:                game{Name: "Pokemon - Crystal Version"},
+		Format:              "sram",
+		ROMSHA1:             "pokemon-crystal-rom",
+		SlotName:            "default",
+		SystemSlug:          "gameboy",
+		TrustedHelperSystem: true,
+	})
+	if !result.Rejected {
+		t.Fatal("expected 8-byte gameboy .srm payload to still be rejected (regression guard)")
+	}
+	if result.RejectReason != "game boy raw save size 8 is not recognized" {
+		t.Fatalf("unexpected reject reason: %q", result.RejectReason)
+	}
+}
+
+func TestNormalizeSaveInputRejectsOversizedGameBoyRTCFile(t *testing.T) {
+	a := &app{}
+	result := a.normalizeSaveInputDetailed(saveCreateInput{
+		Filename:            "Pokemon - Crystal Version (USA, Europe) (Rev 1).rtc",
+		Payload:             buildNonBlankPayload(65, 0xA5),
+		Game:                game{Name: "Pokemon - Crystal Version"},
+		Format:              "sram",
+		ROMSHA1:             "pokemon-crystal-rom",
+		SlotName:            "default",
+		SystemSlug:          "gameboy",
+		TrustedHelperSystem: true,
+	})
+	if !result.Rejected {
+		t.Fatal("expected 65-byte gameboy .rtc payload to be rejected (oversized for RTC)")
+	}
+	if result.RejectReason != "game boy raw save size 65 is not recognized for .rtc" {
+		t.Fatalf("unexpected reject reason: %q", result.RejectReason)
+	}
+}
+
 func buildNSMBNDSSaveFixture() []byte {
 	payload := make([]byte, 8192)
 	positions := []int{2, 258, 898, 1538, 2178, 4098, 4354, 4994, 5634, 6274}

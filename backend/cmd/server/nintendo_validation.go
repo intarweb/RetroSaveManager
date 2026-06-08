@@ -53,11 +53,14 @@ func validateNintendoRawSave(input saveCreateInput, detection saveSystemDetectio
 	switch systemSlug {
 	case "gameboy":
 		return validateStrictRawSaveClass(input, detection, strictRawSaveValidationProfile{
-			SystemSlug:          "gameboy",
-			DisplayName:         "game boy",
-			ParserID:            "gameboy-raw-sram",
-			AllowedExts:         map[string]struct{}{"sav": {}, "srm": {}, "ram": {}, "rtc": {}, "gme": {}},
-			AllowedSizes:        strictRawGBSizes,
+			SystemSlug:   "gameboy",
+			DisplayName:  "game boy",
+			ParserID:     "gameboy-raw-sram",
+			AllowedExts:  map[string]struct{}{"sav": {}, "srm": {}, "ram": {}, "rtc": {}, "gme": {}},
+			AllowedSizes: strictRawGBSizes,
+			AllowedSizesByExt: map[string]func(int) bool{
+				"rtc": func(n int) bool { return n >= 1 && n <= 64 },
+			},
 			RequireROMSHA1:      true,
 			RequireTrustedMatch: true,
 			RejectBlank:         true,

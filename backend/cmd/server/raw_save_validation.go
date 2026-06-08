@@ -25,6 +25,7 @@ type strictRawSaveValidationProfile struct {
 	ParserID             string
 	AllowedExts          map[string]struct{}
 	AllowedSizes         map[int]struct{}
+	AllowedSizesByExt    map[string]func(int) bool
 	RequireROMSHA1       bool
 	RequireTrustedMatch  bool
 	RequireDeclared      bool
@@ -62,7 +63,14 @@ func validateStrictRawSaveClass(input saveCreateInput, detection saveSystemDetec
 			RejectReason: "payload looks like text/noise",
 		}
 	}
-	if _, ok := profile.AllowedSizes[len(input.Payload)]; !ok {
+	if extSizeFn, ok := profile.AllowedSizesByExt[ext]; ok {
+		if !extSizeFn(len(input.Payload)) {
+			return consoleValidationResult{
+				Rejected:     true,
+				RejectReason: fmt.Sprintf("%s raw save size %d is not recognized for .%s", profile.DisplayName, len(input.Payload), ext),
+			}
+		}
+	} else if _, ok := profile.AllowedSizes[len(input.Payload)]; !ok {
 		return consoleValidationResult{
 			Rejected:     true,
 			RejectReason: fmt.Sprintf("%s raw save size %d is not recognized", profile.DisplayName, len(input.Payload)),
