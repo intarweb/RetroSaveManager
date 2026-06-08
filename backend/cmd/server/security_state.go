@@ -597,6 +597,10 @@ func (a *app) bindAppPasswordToDeviceLocked(passwordID string, d device) {
 			previous.BoundDeviceType = ""
 			previous.BoundFingerprint = ""
 			a.appPasswords[*current] = previous
+			// The displaced password is no longer bound to this device. If no other
+			// device references it either, delete it instead of leaving an orphaned,
+			// unusable record behind to accumulate over repeated (re)bindings.
+			a.deleteAppPasswordIfOrphanedLocked(*current, d.ID)
 		}
 	}
 
@@ -624,6 +628,27 @@ func (a *app) bindAppPasswordToDeviceLocked(passwordID string, d device) {
 		d.LastSeenAt = now
 	}
 	a.saveDeviceLocked(d)
+}
+
+// deleteAppPasswordIfOrphanedLocked removes an app-password that is no longer
+// bound to any device. excludeDeviceID is the device currently being rebound to a
+// different password (its own stale link to passwordID is about to be replaced),
+// so it is not treated as a remaining reference. This keeps displaced, unusable
+// app-passwords from accumulating without disturbing passwords still in use.
+func (a *app) deleteAppPasswordIfOrphanedLocked(passwordID string, excludeDeviceID int) {
+	record, ok := a.appPasswords[passwordID]
+	if !ok || record.BoundDeviceID != nil {
+		return
+	}
+	for deviceID, candidate := range a.devices {
+		if deviceID == excludeDeviceID {
+			continue
+		}
+		if candidate.BoundAppPasswordID != nil && *candidate.BoundAppPasswordID == passwordID {
+			return
+		}
+	}
+	delete(a.appPasswords, passwordID)
 }
 
 func applyHelperMetadataToDevice(input device, metadata helperMetadata, seenAt time.Time) device {

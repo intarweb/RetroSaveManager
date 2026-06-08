@@ -358,7 +358,22 @@ func (a *app) authenticateHelperKey(compactKey string, identity helperIdentity, 
 	hasBoundIdentity := strings.TrimSpace(record.BoundDeviceType) != "" && strings.TrimSpace(record.BoundFingerprint) != ""
 	if hasBoundIdentity {
 		if identity.isComplete() && !deviceIdentityMatches(identity.DeviceType, identity.Fingerprint, record.BoundDeviceType, record.BoundFingerprint) {
-			return helperAuthContext{}, http.StatusConflict, "app password is already bound to another device"
+			// A helper can present a different device_type per source while keeping a
+			// stable fingerprint — e.g. the SGM Steam Deck helper enrolls as
+			// device_type "steamdeck" but uploads saves tagged with the source's
+			// emulator type ("retroarch"). The fingerprint is the stable per-device
+			// identity; device_type is variable metadata. When the fingerprint still
+			// matches the bound one, treat it as the same physical device and keep the
+			// bound identity (so the existing device resolves and we rebind cleanly).
+			// Only a genuinely different fingerprint is another device — reject that.
+			if strings.EqualFold(strings.TrimSpace(identity.Fingerprint), strings.TrimSpace(record.BoundFingerprint)) {
+				identity = helperIdentity{
+					DeviceType:  record.BoundDeviceType,
+					Fingerprint: record.BoundFingerprint,
+				}
+			} else {
+				return helperAuthContext{}, http.StatusConflict, "app password is already bound to another device"
+			}
 		}
 		if !identity.isComplete() {
 			identity = helperIdentity{
@@ -379,10 +394,21 @@ func (a *app) authenticateHelperKey(compactKey string, identity helperIdentity, 
 		return helperAuthContext{}, http.StatusConflict, "device already has a different app password bound"
 	}
 
+	// CHECK 3 — the app-password record stores a device ID that differs from the
+	// device we resolved by identity. This happens routinely after an RSM restart
+	// reloads security_device_state.json: a device can be re-created (or re-keyed)
+	// with a new ID even though it is the same physical machine. We must only reject
+	// the request when the stale ID belongs to a genuinely different device — i.e.
+	// one whose fingerprint does not match. Otherwise we fall through and let the
+	// rebind below repoint the app-password at the current device ID.
 	if record.BoundDeviceID != nil && *record.BoundDeviceID != boundDevice.ID {
-		if _, exists := a.devices[*record.BoundDeviceID]; exists {
-			return helperAuthContext{}, http.StatusConflict, "app password is already bound to another device"
+		if oldDevice, exists := a.devices[*record.BoundDeviceID]; exists {
+			if !deviceIdentityMatches(oldDevice.DeviceType, oldDevice.Fingerprint, boundDevice.DeviceType, boundDevice.Fingerprint) {
+				return helperAuthContext{}, http.StatusConflict, "app password is already bound to another device"
+			}
+			// Same physical device under a different ID — rebind to the current device.
 		}
+		// Old bound device no longer exists (state reload) — rebind to the current device.
 	}
 
 	now := time.Now().UTC()
