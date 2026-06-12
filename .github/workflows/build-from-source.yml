@@ -1,0 +1,202 @@
+# UNIVERSAL build-from-source workflow — BYTE-IDENTICAL across every Model B fork.
+#
+# DO NOT customize this file per-fork. If a fork needs different behavior, use
+# GitHub Actions repository Variables (Settings → Secrets and variables →
+# Actions → Variables):
+#
+#   DOCKERFILE      override auto-detected path (default: root Dockerfile, then shallowest)
+#   BUILD_CONTEXT   override docker build context (default: . — repo root)
+#   PLATFORMS       override platform list (default: linux/amd64,linux/arm64)
+#   BUILD_ARGS      multi-line KEY=VALUE pairs passed to docker build (default: none).
+#                   Used by forks whose upstream Dockerfile declares an ARG with no
+#                   default that the upstream's own CI passes externally (e.g.
+#                   tika-docker's TIKA_VERSION via republish-images.sh).
+#   IS_SOURCE_BUILT job-level gate: build runs only when set to 'true'. Plain-mirror
+#                   forks set 'false' so the workflow file stays installed (uniform
+#                   scaffolding) but the job no-ops; fork-publish.yml owns :latest.
+#   FREE_DISK_SPACE opt-in (set 'true') for forks whose images blow past the
+#                   14GB default disk on ubuntu-latest (vllm-class CUDA images).
+#                   Adds ~3 min per build; reclaims ~30GB by removing pre-installed
+#                   Android SDK / .NET / Haskell / large npm caches.
+#   RUNS_ON         per-fork runner-label override (default: "ubuntu-latest").
+#                   JSON-encoded — single string for one label, or JSON array for
+#                   multiple. Set to '["self-hosted","lan-docker","big-build"]'
+#                   for forks that exceed hosted-runner capacity (vllm).
+#   BUILD_TIMEOUT_MINUTES  per-fork job-timeout override (default 360, the
+#                   GitHub-hosted-runner ceiling). Raise as a ONE-SHOT bootstrap
+#                   on forks whose first cold-cache build exceeds 360min (vllm
+#                   single-arch CUDA: ~5-6h first run, ~30-45m once :buildcache
+#                   is populated). Revert to default after first green run.
+#                   Honest-fact #97.
+#
+# If a fork's Dockerfile needs out-of-context pre-build steps, the right fix is
+# to cherry-pick a multi-stage self-contained Dockerfile from upstream into our
+# intarweb-dev — NOT to add pre-build logic here.
+#
+# Codified in oss-contributing:ghcr-fork-mirror skill honest-fact #52.
+
+name: Build from source → GHCR
+
+on:
+  push:
+    branches: [intarweb-dev]
+  workflow_dispatch:
+
+# Single-flight per repo: schedule-driven sync push + Heal K dispatch + manual
+# workflow_dispatch can all converge. cancel-in-progress: false because builds
+# are expensive (vllm 30-45 min, bifrost 45 min) — let the in-flight one finish,
+# queue the next behind it. Honest-fact #74.
+concurrency:
+  group: build-from-source-${{ github.repository }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    # IS_SOURCE_BUILT Variable is the authoritative source-vs-mirror switch
+    # for the fleet. Setting it to anything other than 'true' (or leaving it
+    # unset) skips the build entirely. This keeps the WORKFLOW FILE itself
+    # byte-identical across every fork (uniform infra scaffolding) while
+    # giving operators a per-fork Variable to control source-build vs
+    # plain-mirror behavior without removing files or disabling workflows.
+    # Plain-mirror forks (docker-neo4j etc) still have build-from-source.yml
+    # installed but the job no-ops; fork-publish.yml owns :latest for them.
+    if: vars.IS_SOURCE_BUILT == 'true'
+    # Per-fork override via repo Variable RUNS_ON (default: ubuntu-latest hosted).
+    # Set to '["self-hosted","lan-docker","big-build"]' (JSON array, single line)
+    # for forks whose builds exceed hosted-runner capacity (16GB RAM / 14GB disk
+    # — vllm's CUDA csrc-build is the canonical case). Honest-fact #89.
+    runs-on: ${{ fromJSON(vars.RUNS_ON || '"ubuntu-latest"') }}
+    # Per-fork override via repo Variable BUILD_TIMEOUT_MINUTES (default 360, the
+    # GitHub-hosted-runner hard ceiling). Raise to 720 as a ONE-SHOT bootstrap on
+    # forks whose first build needs to populate :buildcache from scratch (vllm
+    # at single-arch CUDA: ~5-6h cold-cache vs ~30-45m warm). Revert to 360 once
+    # warm. Codified after 27340784996 / 27373307060 cancelled at 360min on the
+    # vllm fork's first cold-cache run. Honest-fact #91.
+    timeout-minutes: ${{ fromJSON(vars.BUILD_TIMEOUT_MINUTES || '360') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Optional disk reclamation for forks whose images blow past the 14GB
+      # default disk on ubuntu-latest hosted runners (vllm being the canonical
+      # offender — its CUDA build artifacts + intermediate layers exceed 20GB
+      # easily). Frees ~30GB by removing pre-installed Android SDK, .NET,
+      # Haskell, large npm caches, and codeql databases. Costs ~3 min — gated
+      # behind FREE_DISK_SPACE Variable so non-vllm-class forks don't pay it.
+      - name: 🧹 Free disk space (opt-in via FREE_DISK_SPACE Variable)
+        if: vars.FREE_DISK_SPACE == 'true'
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: false
+
+      - name: 🔍 Resolve Dockerfile
+        id: df
+        env:
+          DOCKERFILE_VAR: ${{ vars.DOCKERFILE }}
+        run: |
+          set -euo pipefail
+          # 1. Explicit override (repo Variable) always wins.
+          if [ -n "${DOCKERFILE_VAR}" ]; then
+            echo "  ✓ using DOCKERFILE override: ${DOCKERFILE_VAR}"
+            echo "path=${DOCKERFILE_VAR}" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # 2. Prefer a root Dockerfile.
+          if [ -f Dockerfile ]; then
+            echo "  ✓ found root Dockerfile"
+            echo "path=Dockerfile" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # 3. Deterministic discovery: shallowest non-test Dockerfile.
+          cand="$(find . -maxdepth 4 -type f -name Dockerfile \
+                    -not -path './node_modules/*' \
+                    -not -path './.git/*' \
+                    -not -path '*/test/*' \
+                    -not -path '*/tests/*' \
+                    -not -path '*/example*/*' \
+                    -not -path './vendor/*' \
+                    -not -path './third_party/*' \
+                  | sed 's|^\./||' \
+                  | awk '{print gsub(/\//,"/"), $0}' \
+                  | sort -n | head -n1 | cut -d' ' -f2- || true)"
+          if [ -z "$cand" ]; then
+            echo "  ✗ no Dockerfile found → plain-mirror fallback (no image built)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "  ✓ auto-found: $cand"
+          echo "path=$cand" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        if: steps.df.outputs.skip != 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        if: steps.df.outputs.skip != 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        if: steps.df.outputs.skip != 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔡 Compute image (lowercase — GHCR requires lowercase repo names)
+        id: imgname
+        run: |
+          # vars.IMAGE_NAME may already be lowercase (set as such manually), but
+          # the github.event.repository.name fallback can be CamelCase if the fork
+          # repo name has uppercase letters (e.g. RetroSaveManager). docker/build-push
+          # rejects ANY uppercase in the image path. fork-publish.yml does the same
+          # via tr; we do it here. Honest-fact #63.
+          NAME="${{ vars.IMAGE_NAME || github.event.repository.name }}"
+          NAME_LOWER=$(echo "$NAME" | tr '[:upper:]' '[:lower:]')
+          echo "image=ghcr.io/${{ github.repository_owner }}/${NAME_LOWER}" >> "$GITHUB_OUTPUT"
+
+      - name: 🏷️ Docker metadata
+        id: meta
+        if: steps.df.outputs.skip != 'true'
+        uses: docker/metadata-action@v5
+        with:
+          # Per-fork override via repo Variable IMAGE_NAME — for forks where the
+          # published image name differs from the repo name (docker-autoheal repo →
+          # autoheal image). Falls back to repo name. Same as fork-publish.yml so
+          # ONE image per fork. Lowercased above (metadata-action's lowercase only
+          # applies to tags, not to the images input — uppercase repo names slip
+          # through and break build-push with "repository name must be lowercase").
+          images: ${{ steps.imgname.outputs.image }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/intarweb-dev' }}
+            type=sha,prefix=sha-,format=short
+
+      - name: 🚀 Build & push
+        if: steps.df.outputs.skip != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ vars.BUILD_CONTEXT || '.' }}
+          file: ${{ steps.df.outputs.path }}
+          platforms: ${{ vars.PLATFORMS || 'linux/amd64,linux/arm64' }}
+          # Per-fork override via repo Variable BUILD_ARGS — multi-line, one
+          # KEY=VALUE per line. Used by forks whose Dockerfile declares an ARG
+          # with no default (e.g. tika-docker's TIKA_VERSION). Honest-fact #88.
+          build-args: ${{ vars.BUILD_ARGS || '' }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
