@@ -389,10 +389,18 @@ func (s *n64ControllerPakStore) extractLogicalEntries(syncLineKey string, payloa
 	}
 	root := fsys.ReadDirRoot()
 	out := make([]n64ControllerPakExtractedEntry, 0, len(root))
-	for idx, dirEntry := range root {
+	for _, dirEntry := range root {
+		// Skip blank/empty note slots: some Controller Pak images expose free or
+		// uninitialised slots whose name is empty, which pakfs.Open rejects with
+		// "open : invalid argument". Ignoring them (rather than erroring) stops valid
+		// .cpk uploads from being rejected with HTTP 422 ("open controller pak entry").
+		if strings.TrimSpace(dirEntry.Name()) == "" {
+			continue
+		}
 		opened, err := fsys.Open(dirEntry.Name())
 		if err != nil {
-			return nil, fmt.Errorf("open controller pak entry %q: %w", dirEntry.Name(), err)
+			// A single unreadable note must not fail the whole Controller Pak upload.
+			continue
 		}
 		file, ok := opened.(*pakfs.File)
 		if !ok {
@@ -418,7 +426,7 @@ func (s *n64ControllerPakStore) extractLogicalEntries(syncLineKey string, payloa
 			GameCode:       strings.ToUpper(strings.TrimSpace(gameCode)),
 			PublisherCode:  strings.ToUpper(strings.TrimSpace(publisherCode)),
 			NoteName:       noteName,
-			EntryIndex:     idx + 1,
+			EntryIndex:     len(out) + 1,
 			PageCount:      int((file.Size() + 255) / 256),
 			BlockUsage:     int((file.Size() + 255) / 256),
 			StructureValid: true,
@@ -448,7 +456,18 @@ func countN64ControllerPakEntries(payload []byte) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("parse controller pak filesystem: %w", err)
 	}
-	return len(fsys.ReadDirRoot()), nil
+	root := fsys.ReadDirRoot()
+	count := 0
+	for _, dirEntry := range root {
+		// Count only real, named notes — ignore blank/empty slots that
+		// extractLogicalEntries also skips, so validation and extraction agree
+		// (a pak with only empty slots counts as 0 → "no save entries", not a
+		// later HTTP 422 during extraction).
+		if strings.TrimSpace(dirEntry.Name()) != "" {
+			count++
+		}
+	}
+	return count, nil
 }
 
 func (logical n64ControllerPakLogicalSave) latestRevision() (n64ControllerPakLogicalRevision, bool) {
