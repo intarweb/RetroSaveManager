@@ -53,11 +53,14 @@ func validateNintendoRawSave(input saveCreateInput, detection saveSystemDetectio
 	switch systemSlug {
 	case "gameboy":
 		return validateStrictRawSaveClass(input, detection, strictRawSaveValidationProfile{
-			SystemSlug:          "gameboy",
-			DisplayName:         "game boy",
-			ParserID:            "gameboy-raw-sram",
-			AllowedExts:         map[string]struct{}{"sav": {}, "srm": {}, "ram": {}, "rtc": {}, "gme": {}},
-			AllowedSizes:        strictRawGBSizes,
+			SystemSlug:   "gameboy",
+			DisplayName:  "game boy",
+			ParserID:     "gameboy-raw-sram",
+			AllowedExts:  map[string]struct{}{"sav": {}, "srm": {}, "ram": {}, "rtc": {}, "gme": {}},
+			AllowedSizes: strictRawGBSizes,
+			AllowedSizesByExt: map[string]func(int) bool{
+				"rtc": func(n int) bool { return n >= 1 && n <= 64 },
+			},
 			RequireROMSHA1:      true,
 			RequireTrustedMatch: true,
 			RejectBlank:         true,
@@ -66,18 +69,19 @@ func validateNintendoRawSave(input saveCreateInput, detection saveSystemDetectio
 		})
 	case "gba":
 		return validateStrictRawSaveClass(input, detection, strictRawSaveValidationProfile{
-			SystemSlug:          "gba",
-			DisplayName:         "gba",
-			ParserID:            "gba-raw-backup",
-			AllowedExts:         map[string]struct{}{"sav": {}, "srm": {}, "sa1": {}},
-			AllowedSizes:        strictRawGBASizes,
-			RequireROMSHA1:      true,
-			RequireTrustedMatch: true,
-			RequireSignature:    hasGBASignature,
-			SignatureReason:     "gba validated payload signature",
-			RejectBlank:         true,
-			SparseWarningCutoff: 16,
-			Warning:             "No structural GBA save decoder is available yet beyond backup-library signature validation",
+			SystemSlug:                       "gba",
+			DisplayName:                      "gba",
+			ParserID:                         "gba-raw-backup",
+			AllowedExts:                      map[string]struct{}{"sav": {}, "srm": {}, "sa1": {}},
+			AllowedSizes:                     strictRawGBASizes,
+			RequireROMSHA1:                   true,
+			RequireTrustedMatch:              true,
+			RequireSignature:                 hasGBASignature,
+			SignatureReason:                  "gba validated payload signature",
+			SignatureAdvisoryWithHelperTrust: true,
+			RejectBlank:                      true,
+			SparseWarningCutoff:              16,
+			Warning:                          "No structural GBA save decoder is available yet beyond backup-library signature validation",
 		})
 	case "nes":
 		return validateStrictRawSaveClass(input, detection, strictRawSaveValidationProfile{
