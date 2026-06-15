@@ -67,6 +67,13 @@ type quarantineRecord struct {
 	TrustLevel     string    `json:"trustLevel,omitempty"`
 	UploadedAt     time.Time `json:"uploadedAt"`
 	UploadSource   string    `json:"uploadSource,omitempty"`
+	// Last time this same payload was re-attempted by a client; nil on the
+	// first observation. Updated by quarantineRejectedUpload when an entry
+	// with the same SHA256 already exists.
+	LastSeenAt *time.Time `json:"lastSeenAt,omitempty"`
+	// Total observations of this payload, including the first. Always >= 1
+	// for any persisted record.
+	RetryCount int `json:"retryCount,omitempty"`
 }
 
 type validationStatus struct {
@@ -322,6 +329,33 @@ func (a *app) quarantineRejectedUpload(filename, sourcePath string, payload []by
 	now := time.Now().UTC()
 	sum := sha256.Sum256(payload)
 	shaHex := hex.EncodeToString(sum[:])
+
+	// Dedupe: if a quarantine entry with the same payload SHA256 already
+	// exists, update its LastSeenAt + RetryCount instead of writing a fresh
+	// directory. Without this, a misbehaving client that re-attempts a
+	// rejected save every sync cycle creates one new quarantine entry per
+	// retry, growing on-disk state without bound. listQuarantineRecords()
+	// is O(N) but N stays small post-fix; if it ever doesn't, indexing by
+	// SHA256 would be the next step.
+	if existingDir, existingRecord, ok := a.findQuarantineRecordBySHA(shaHex); ok {
+		count := existingRecord.RetryCount
+		if count < 1 {
+			count = 1
+		}
+		count++
+		seen := now
+		existingRecord.LastSeenAt = &seen
+		existingRecord.RetryCount = count
+		// Refresh the rejection reason in case the validator's reasoning
+		// changed (e.g. the heuristic was tuned), so operators see the
+		// latest classification when triaging.
+		if reason := strings.TrimSpace(item.Reason); reason != "" {
+			existingRecord.Reason = reason
+		}
+		_ = a.writeQuarantineRecord(existingDir, existingRecord)
+		return
+	}
+
 	id := fmt.Sprintf("%s-%s", now.Format("20060102T150405.000000000Z"), shaHex[:12])
 	dir, err := safeJoinUnderRoot(store.root, quarantineDirName, canonicalSegment(id, "rejected"))
 	if err != nil {
@@ -355,6 +389,7 @@ func (a *app) quarantineRejectedUpload(filename, sourcePath string, payload []by
 		TrustLevel:     firstNonEmpty(strings.TrimSpace(item.TrustLevel), validationTrustLevel(item.ParserLevel)),
 		UploadedAt:     now,
 		UploadSource:   strings.TrimSpace(uploadSource),
+		RetryCount:     1,
 	}
 	if err := writeFileAtomic(filepath.Join(dir, payloadFile), payload, 0o644); err != nil {
 		return
@@ -364,6 +399,45 @@ func (a *app) quarantineRejectedUpload(filename, sourcePath string, payload []by
 		return
 	}
 	_ = writeFileAtomic(filepath.Join(dir, "metadata.json"), data, 0o644)
+}
+
+// findQuarantineRecordBySHA scans the on-disk quarantine for an entry whose
+// payload SHA256 matches the given hex digest. Returns the directory path,
+// the parsed record, and whether a match was found.
+func (a *app) findQuarantineRecordBySHA(shaHex string) (string, quarantineRecord, bool) {
+	store := a.currentSaveStore()
+	if store == nil || strings.TrimSpace(shaHex) == "" {
+		return "", quarantineRecord{}, false
+	}
+	root, err := safeJoinUnderRoot(store.root, quarantineDirName)
+	if err != nil {
+		return "", quarantineRecord{}, false
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return "", quarantineRecord{}, false
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		dir := filepath.Join(root, entry.Name())
+		data, err := os.ReadFile(filepath.Join(dir, "metadata.json"))
+		if err != nil {
+			continue
+		}
+		var record quarantineRecord
+		if err := json.Unmarshal(data, &record); err != nil {
+			continue
+		}
+		if strings.EqualFold(record.SHA256, shaHex) {
+			if strings.TrimSpace(record.ID) == "" {
+				record.ID = entry.Name()
+			}
+			return dir, record, true
+		}
+	}
+	return "", quarantineRecord{}, false
 }
 
 func (a *app) listQuarantineRecords() ([]quarantineRecord, error) {

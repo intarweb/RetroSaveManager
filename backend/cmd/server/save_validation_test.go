@@ -126,3 +126,35 @@ func TestValidationQuarantineDeleteRemovesOnlyQuarantineItem(t *testing.T) {
 		t.Fatalf("expected quarantine delete to remove item: %s", prettyJSON(afterValidation))
 	}
 }
+
+// Re-uploading the same payload (same SHA256) must not create a new quarantine
+// entry — instead the existing record's RetryCount + LastSeenAt are bumped.
+// Without this, a misbehaving sync client (we observed sgm-steamdeck-helper
+// retrying a rejected save every 30s cycle) makes quarantine grow unbounded
+// on disk.
+func TestQuarantineDedupesByPayloadSHA256(t *testing.T) {
+	h := newContractHarness(t)
+
+	body := []byte("not a save file")
+	for i := 0; i < 5; i++ {
+		upload := h.multipart("/saves", nil, "file", "notes.txt", body)
+		assertStatus(t, upload, http.StatusUnprocessableEntity)
+	}
+
+	status := h.request(http.MethodGet, "/api/validation", nil)
+	assertStatus(t, status, http.StatusOK)
+	statusBody := decodeJSONMap(t, status.Body)
+	validation := mustObject(t, statusBody["validation"], "validation")
+	if got := mustNumber(t, validation["quarantineCount"], "validation.quarantineCount"); got != 1 {
+		t.Fatalf("expected exactly 1 quarantine entry after 5 dup uploads, got %v: %s", got, prettyJSON(validation))
+	}
+	quarantine := mustArray(t, validation["quarantine"], "validation.quarantine")
+	first := mustObject(t, quarantine[0], "quarantine[0]")
+	retryCount := mustNumber(t, first["retryCount"], "quarantine[0].retryCount")
+	if retryCount != 5 {
+		t.Fatalf("expected retryCount=5 after 5 uploads, got %v: %s", retryCount, prettyJSON(first))
+	}
+	if first["lastSeenAt"] == nil {
+		t.Fatalf("expected lastSeenAt to be set after a retry: %s", prettyJSON(first))
+	}
+}
