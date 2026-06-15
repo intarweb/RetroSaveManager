@@ -196,6 +196,13 @@ type saveSystemDetectionResult struct {
 
 var numberedSaveSlotTitlePattern = regexp.MustCompile(`(?i)^\s*[0-9]{1,3}\s*-\s*(autosave|save|slot|auto|backup|mission|player|file|state|memory|sp[0-9]*)\b`)
 
+var knownTitleSystemOverrides = map[string]string{
+	// Defenders of Oasis is a Game Gear-exclusive title. Some upstream catalog
+	// data has reported game id 328236 as Genesis, which causes stored saves to
+	// rescan into the wrong system and creates noisy RetroDECK download skips.
+	"defenders of oasis": "game-gear",
+}
+
 func allSupportedSystems() []system {
 	out := make([]system, 0, len(supportedSystemsBySlug))
 	for _, candidate := range supportedSystemsBySlug {
@@ -366,6 +373,15 @@ func detectSaveSystem(input saveSystemDetectionInput) saveSystemDetectionResult 
 				})
 			}
 		}
+	}
+
+	if overrideSlug := knownSystemOverrideForTitle(displayTitle); overrideSlug != "" {
+		setScore(overrideSlug, 93, "known title system override", func(candidate *detectionCandidate) {
+			candidate.declared = true
+			candidate.helperTrusted = input.TrustedHelperSystem
+			candidate.storedTrusted = input.TrustedStoredSystem
+			candidate.titleHint = true
+		})
 	}
 
 	if isLikelyPS1MemoryCard(payload, ext) {
@@ -540,6 +556,13 @@ func detectSaveSystem(input saveSystemDetectionInput) saveSystemDetectionResult 
 			TitleHint:     bestCandidate.titleHint,
 		},
 	}
+}
+
+func knownSystemOverrideForTitle(title string) string {
+	if slug := knownTitleSystemOverrides[canonicalTrackTitleKey(title)]; slug != "" && isSupportedSystemSlug(slug) {
+		return slug
+	}
+	return ""
 }
 
 func isLikelyPS2MemoryCard(payload []byte) bool {

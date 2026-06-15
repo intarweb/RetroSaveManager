@@ -442,6 +442,93 @@ func TestRescanSavesPrunesStoredFallbackArcadeGuesses(t *testing.T) {
 	}
 }
 
+func TestRescanSavesCorrectsDefendersOfOasisToGameGear(t *testing.T) {
+	h := newContractHarness(t)
+	records := h.app.snapshotSaveRecords()
+	if len(records) == 0 {
+		t.Fatal("expected seeded save record")
+	}
+
+	seed := records[0]
+	dir := filepath.Join(filepath.Dir(seed.dirPath), "Sega Genesis Mega Drive", "Defenders of Oasis", "defenders-oasis-wrong-system")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir wrong-system save: %v", err)
+	}
+	payload := make([]byte, 8192)
+	payload[0] = 0x42
+	payloadPath := filepath.Join(dir, "payload.srm")
+	if err := os.WriteFile(payloadPath, payload, 0o644); err != nil {
+		t.Fatalf("write payload: %v", err)
+	}
+
+	record := seed
+	record.dirPath = dir
+	record.payloadPath = payloadPath
+	record.PayloadFile = "payload.srm"
+	record.ROMSHA1 = "defenders-oasis-rom-sha1"
+	record.SystemSlug = "genesis"
+	record.SystemPath = "Sega Genesis Mega Drive"
+	record.GamePath = "Defenders of Oasis"
+	record.GameSlug = "defenders-of-oasis"
+	record.Summary.ID = "defenders-oasis-wrong-system"
+	record.Summary.Filename = "Defenders of Oasis (USA, Europe).srm"
+	record.Summary.DisplayTitle = "Defenders of Oasis"
+	record.Summary.Format = inferSaveFormat(record.Summary.Filename)
+	record.Summary.SystemSlug = "genesis"
+	record.Summary.Metadata = map[string]any{
+		"rsm": map[string]any{
+			"systemDetection": map[string]any{
+				"slug":          "genesis",
+				"reason":        "trusted helper declared system slug",
+				"trustedSystem": true,
+				"evidence": map[string]any{
+					"declared":      true,
+					"helperTrusted": true,
+				},
+			},
+		},
+	}
+	record.Summary.Game = game{
+		ID:           328236,
+		Name:         "Defenders of Oasis",
+		DisplayTitle: "Defenders of Oasis",
+		System:       &system{ID: 33, Name: "Sega Genesis/Mega Drive", Slug: "genesis", Manufacturer: "Sega"},
+	}
+
+	metadataBytes, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal metadata: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "metadata.json"), metadataBytes, 0o644); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+
+	result, err := h.app.rescanSaves(saveRescanOptions{DryRun: false, PruneUnsupported: true})
+	if err != nil {
+		t.Fatalf("rescan defenders of oasis: %v", err)
+	}
+	if result.Updated == 0 {
+		t.Fatalf("expected rescan to update wrong-system save, got %+v", result)
+	}
+
+	found := false
+	for _, candidate := range h.app.snapshotSaveRecords() {
+		if candidate.Summary.ID != "defenders-oasis-wrong-system" {
+			continue
+		}
+		found = true
+		if candidate.SystemSlug != "game-gear" || candidate.Summary.SystemSlug != "game-gear" {
+			t.Fatalf("expected game-gear after rescan, got record=%s summary=%s", candidate.SystemSlug, candidate.Summary.SystemSlug)
+		}
+		if candidate.Summary.Game.System == nil || candidate.Summary.Game.System.Slug != "game-gear" {
+			t.Fatalf("expected game system game-gear, got %+v", candidate.Summary.Game.System)
+		}
+	}
+	if !found {
+		t.Fatal("expected corrected Defenders of Oasis save to remain after rescan")
+	}
+}
+
 func TestRescanSavesPrunesBlankTrustedNeoGeoSave(t *testing.T) {
 	h := newContractHarness(t)
 	record, err := h.app.createSave(saveCreateInput{
