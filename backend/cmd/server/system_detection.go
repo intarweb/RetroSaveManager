@@ -197,9 +197,13 @@ type saveSystemDetectionResult struct {
 var numberedSaveSlotTitlePattern = regexp.MustCompile(`(?i)^\s*[0-9]{1,3}\s*-\s*(autosave|save|slot|auto|backup|mission|player|file|state|memory|sp[0-9]*)\b`)
 
 var knownTitleSystemOverrides = map[string]string{
-	// Defenders of Oasis is a Game Gear-exclusive title. Some upstream catalog
-	// data has reported game id 328236 as Genesis, which causes stored saves to
-	// rescan into the wrong system and creates noisy RetroDECK download skips.
+	// Defenders of Oasis shipped on BOTH Game Gear and Genesis, so this entry is
+	// a tie-breaker, not a correction: some upstream catalog data has reported
+	// game id 328236 as Genesis and produced noisy RetroDECK download skips.
+	// It must never outrank a system the client declared — doing so filed a real
+	// Genesis save as game-gear and made it permanently unsyncable, because the
+	// client's genesis runtime profile could not canonicalise against a game-gear
+	// record. See the gate in detectSaveSystem.
 	"defenders of oasis": "game-gear",
 }
 
@@ -375,13 +379,22 @@ func detectSaveSystem(input saveSystemDetectionInput) saveSystemDetectionResult 
 		}
 	}
 
-	if overrideSlug := knownSystemOverrideForTitle(displayTitle); overrideSlug != "" {
-		setScore(overrideSlug, 93, "known title system override", func(candidate *detectionCandidate) {
-			candidate.declared = true
-			candidate.helperTrusted = input.TrustedHelperSystem
-			candidate.storedTrusted = input.TrustedStoredSystem
-			candidate.titleHint = true
-		})
+	// A title can legitimately exist on more than one system — Defenders of
+	// Oasis shipped on both Genesis and Game Gear. The override exists for
+	// catalog data that reports the wrong system, but it must never outrank a
+	// system the client actually declared: at 93 it beat an untrusted helper's
+	// declared system (92), so a Genesis save was filed as Game Gear and every
+	// later latest-check failed to canonicalise its genesis runtime profile.
+	// Apply it only when nothing was declared at all.
+	if supportedSystemSlugFromLabel(input.DeclaredSystemSlug) == "" {
+		if overrideSlug := knownSystemOverrideForTitle(displayTitle); overrideSlug != "" {
+			setScore(overrideSlug, 93, "known title system override", func(candidate *detectionCandidate) {
+				candidate.declared = true
+				candidate.helperTrusted = input.TrustedHelperSystem
+				candidate.storedTrusted = input.TrustedStoredSystem
+				candidate.titleHint = true
+			})
+		}
 	}
 
 	if isLikelyPS1MemoryCard(payload, ext) {

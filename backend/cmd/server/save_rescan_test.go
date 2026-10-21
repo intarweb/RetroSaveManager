@@ -442,7 +442,13 @@ func TestRescanSavesPrunesStoredFallbackArcadeGuesses(t *testing.T) {
 	}
 }
 
-func TestRescanSavesCorrectsDefendersOfOasisToGameGear(t *testing.T) {
+// Defenders of Oasis shipped on BOTH Genesis and Game Gear. The title override
+// exists for catalog data that reports the wrong system, but it must not
+// rewrite a save whose system the client actually declared and the server
+// trusted: doing so made the Genesis copy unsyncable, because every later
+// latest-check canonicalised the client's genesis runtime profile against a
+// game-gear record and produced an empty profile.
+func TestRescanSavesRespectsDeclaredGenesisForDefendersOfOasis(t *testing.T) {
 	h := newContractHarness(t)
 	records := h.app.snapshotSaveRecords()
 	if len(records) == 0 {
@@ -503,29 +509,36 @@ func TestRescanSavesCorrectsDefendersOfOasisToGameGear(t *testing.T) {
 		t.Fatalf("write metadata: %v", err)
 	}
 
-	result, err := h.app.rescanSaves(saveRescanOptions{DryRun: false, PruneUnsupported: true})
-	if err != nil {
+	if _, err := h.app.rescanSaves(saveRescanOptions{DryRun: false, PruneUnsupported: true}); err != nil {
 		t.Fatalf("rescan defenders of oasis: %v", err)
 	}
-	if result.Updated == 0 {
-		t.Fatalf("expected rescan to update wrong-system save, got %+v", result)
-	}
-
 	found := false
 	for _, candidate := range h.app.snapshotSaveRecords() {
 		if candidate.Summary.ID != "defenders-oasis-wrong-system" {
 			continue
 		}
 		found = true
-		if candidate.SystemSlug != "game-gear" || candidate.Summary.SystemSlug != "game-gear" {
-			t.Fatalf("expected game-gear after rescan, got record=%s summary=%s", candidate.SystemSlug, candidate.Summary.SystemSlug)
+		if candidate.SystemSlug != "genesis" || candidate.Summary.SystemSlug != "genesis" {
+			t.Fatalf("declared genesis must survive rescan, got record=%s summary=%s", candidate.SystemSlug, candidate.Summary.SystemSlug)
 		}
-		if candidate.Summary.Game.System == nil || candidate.Summary.Game.System.Slug != "game-gear" {
-			t.Fatalf("expected game system game-gear, got %+v", candidate.Summary.Game.System)
+		if candidate.Summary.Game.System == nil || candidate.Summary.Game.System.Slug != "genesis" {
+			t.Fatalf("expected game system genesis, got %+v", candidate.Summary.Game.System)
 		}
 	}
 	if !found {
-		t.Fatal("expected corrected Defenders of Oasis save to remain after rescan")
+		t.Fatal("expected declared Defenders of Oasis save to remain after rescan")
+	}
+}
+
+// The override still applies when nothing was declared — the change only stops
+// it outranking a system the client declared and the server trusted. Without
+// this, the fix above would be indistinguishable from deleting the override.
+func TestKnownTitleOverrideStillAppliesWithoutDeclaration(t *testing.T) {
+	if got := knownSystemOverrideForTitle("Defenders of Oasis"); got != "game-gear" {
+		t.Fatalf("override map should still resolve the title, got %q", got)
+	}
+	if got := knownSystemOverrideForTitle("Some Other Game"); got != "" {
+		t.Fatalf("unrelated titles must not be overridden, got %q", got)
 	}
 }
 
