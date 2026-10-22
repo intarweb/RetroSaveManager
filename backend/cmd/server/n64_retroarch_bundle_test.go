@@ -88,3 +88,25 @@ func TestRetroArchN64BundleTreatsUniformMediaAsUnused(t *testing.T) {
 	response := uploadN64Bundle(t, h, "GoldenEye 007 (USA).srm", bundle)
 	assertStatus(t, response, http.StatusOK)
 }
+
+// FlashRAM has no verified sample pair anywhere on the fleet, so its word
+// order would be a guess whose only symptom is a corrupted restore on another
+// device. A bundle that carries it is refused, with the reason.
+func TestRetroArchN64BundleWithFlashRAMIsRefused(t *testing.T) {
+	h := newContractHarness(t)
+	assertStatus(t, h.json(http.MethodPost, "/auth/app-passwords/auto-enroll", strings.NewReader(`{"minutes":15}`)), http.StatusOK)
+
+	// FlashRAM only: everything else is untouched, so this is the one shape the
+	// old code accepted on a guessed swap rather than refusing.
+	bundle := make([]byte, n64RetroArchSRMSize)
+	for i := n64RetroArchFlashRAMOffset; i < n64RetroArchFlashRAMOffset+n64RetroArchFlashRAMSize; i++ {
+		bundle[i] = byte(i * 11)
+	}
+	response := uploadN64Bundle(t, h, "Majora's Mask (USA).srm", bundle)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("got %d, want 422: %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "FlashRAM") {
+		t.Fatalf("the refusal does not name FlashRAM: %s", response.Body.String())
+	}
+}

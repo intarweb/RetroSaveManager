@@ -308,7 +308,11 @@ func splitRetroArchN64SRM(payload []byte) ([]byte, n64MediaInfo, error) {
 
 	flashram := payload[n64RetroArchFlashRAMOffset : n64RetroArchFlashRAMOffset+n64RetroArchFlashRAMSize]
 	if n64RegionHoldsData(flashram) {
-		candidates = append(candidates, candidate{info: n64CanonicalMediaByType["flashram"], payload: n64Swap32Words(flashram)})
+		// No verified sample pair exists for FlashRAM, so its word order is a
+		// guess. A wrong guess corrupts the save silently, on restore, on
+		// another device. Refuse instead: a game that uses FlashRAM does not
+		// sync from a RetroArch bundle until someone can verify the layout.
+		return nil, n64MediaInfo{}, fmt.Errorf("n64 FlashRAM in a RetroArch bundle is not supported yet (no verified layout)")
 	}
 
 	if len(candidates) == 0 {
