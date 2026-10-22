@@ -118,8 +118,10 @@ func (a *app) normalizeSaveInputDetailedWithOptions(input saveCreateInput, optio
 		rejected = true
 		rejectReason = playStationRejectReason(normalized.System)
 	}
+	placeholderRejected := false
 	if placeholderReason := projectionPlaceholderRejectReason(input); placeholderReason != "" {
 		rejected = true
+		placeholderRejected = true
 		rejectReason = placeholderReason
 	}
 	consoleValidation := validateConsoleSpecificSave(input, detection, normalized)
@@ -195,6 +197,7 @@ func (a *app) normalizeSaveInputDetailedWithOptions(input saveCreateInput, optio
 	}
 	if placeholderReason := projectionPlaceholderRejectReason(input); placeholderReason != "" {
 		rejected = true
+		placeholderRejected = true
 		rejectReason = placeholderReason
 	}
 
@@ -208,7 +211,12 @@ func (a *app) normalizeSaveInputDetailedWithOptions(input saveCreateInput, optio
 			}
 		}
 	}
-	if rejected {
+	// A pass that preserves the stored system is describing a record that
+	// already exists and was accepted when it was written. Console validation
+	// runs again here with less evidence than the write had -- the helper's
+	// trust flag is not part of the record -- so a rejection must not relabel
+	// a stored record as unknown-system and make it invisible to the API.
+	if rejected && !(options.PreserveStoredSystem && !placeholderRejected) {
 		input.SystemSlug = "unknown-system"
 		input.Game.System = nil
 		input.MemoryCard = nil
