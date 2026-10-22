@@ -191,7 +191,7 @@ func requestedRuntimeProfileFromForm(formValue func(string) string, systemSlug s
 
 func isProjectionCapableSystem(systemSlug string) bool {
 	switch canonicalSegment(systemSlug, "") {
-	case "psx", "ps2", "n64", "saturn", "snes", "nes", "gameboy", "gba", "nds", "master-system", "genesis", "game-gear", "sega-cd", "sega-32x", "pc-engine", "atari-lynx", "wonderswan", "sg-1000", "colecovision", "atari-jaguar", "3do", "dreamcast":
+	case "psx", "ps2", "n64", "saturn", "snes", "nes", "gameboy", "gba", "nds", "master-system", "genesis", "game-gear", "sega-cd", "sega-32x", "pc-engine", "atari-lynx", "wonderswan", "sg-1000", "colecovision", "atari-jaguar", "3do", "dreamcast", "ngp", "virtualboy", "neogeo-cd":
 		return true
 	default:
 		return false
