@@ -57,6 +57,19 @@ func TestRetroArchN64BundleWithBlankPakTemplatesIsAccepted(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || body.Save.ID == "" {
 		t.Fatalf("upload named no save: %s", response.Body.String())
 	}
+	// The record is named after the game the client sent. The store writes the
+	// payload to disk as payload.<ext>, so a record titled "payload" means the
+	// name came from the file rather than from the save.
+	for _, record := range h.app.snapshotSaveRecords() {
+		if record.Summary.ID != body.Save.ID {
+			continue
+		}
+		if record.Summary.DisplayTitle != "1080 Snowboarding" {
+			t.Fatalf("record titled %q, want the game name", record.Summary.DisplayTitle)
+		}
+		return
+	}
+	t.Fatalf("upload reported save %q but no record holds it", body.Save.ID)
 
 	download := h.request(http.MethodGet, "/api/saves/"+body.Save.ID+"/download?runtimeProfile=n64/retroarch&device_type=steamdeck&fingerprint=deck-n64", nil)
 	assertStatus(t, download, http.StatusOK)
