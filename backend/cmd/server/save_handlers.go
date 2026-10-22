@@ -429,8 +429,9 @@ func (a *app) handleSaves(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{
 				"success": true,
 				"save": map[string]any{
-					"id":     record.Summary.ID,
-					"sha256": record.Summary.SHA256,
+					"id":      record.Summary.ID,
+					"sha256":  record.Summary.SHA256,
+					"version": record.Summary.Version,
 				},
 			})
 			return
@@ -489,8 +490,9 @@ func (a *app) handleSaves(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{
 				"success": true,
 				"save": map[string]any{
-					"id":     record.Summary.ID,
-					"sha256": record.Summary.SHA256,
+					"id":      record.Summary.ID,
+					"sha256":  record.Summary.SHA256,
+					"version": record.Summary.Version,
 				},
 			})
 			return
@@ -563,8 +565,9 @@ func (a *app) handleSaves(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"success": true,
 			"save": map[string]any{
-				"id":     record.Summary.ID,
-				"sha256": record.Summary.SHA256,
+				"id":      record.Summary.ID,
+				"sha256":  record.Summary.SHA256,
+				"version": record.Summary.Version,
 			},
 		})
 		return
