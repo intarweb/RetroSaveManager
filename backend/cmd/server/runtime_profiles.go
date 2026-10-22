@@ -130,6 +130,9 @@ var runtimeProfileDefinitions = []runtimeProfileDefinition{
 	{ID: "atari-lynx/ares", SystemSlug: "atari-lynx", Label: "ares", TargetExtension: ".eeprom", Note: "Raw Atari Lynx EEPROM"},
 
 	{ID: "wonderswan/mednafen", SystemSlug: "wonderswan", Label: "Mednafen", TargetExtension: ".sav", Note: "Raw WonderSwan backup memory"},
+	{ID: "ngp/mednafen", SystemSlug: "ngp", Label: "Mednafen", TargetExtension: ".flash", Note: "Raw Neo Geo Pocket flash save"},
+	{ID: "virtualboy/mednafen", SystemSlug: "virtualboy", Label: "Mednafen", TargetExtension: ".srm", Note: "Raw Virtual Boy SRAM"},
+	{ID: "neogeo-cd/retroarch", SystemSlug: "neogeo-cd", Label: "RetroArch", TargetExtension: ".srm", Note: "Raw Neo Geo CD backup RAM"},
 	{ID: "wonderswan/ares", SystemSlug: "wonderswan", Label: "ares", TargetExtension: ".sav", Note: "Raw WonderSwan backup memory"},
 	{ID: "wonderswan/retroarch-beetle-wswan", SystemSlug: "wonderswan", Label: "RetroArch (Beetle WonderSwan)", TargetExtension: ".srm", Note: "Raw WonderSwan backup memory"},
 

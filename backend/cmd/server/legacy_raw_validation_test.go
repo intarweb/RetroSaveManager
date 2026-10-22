@@ -192,3 +192,36 @@ func TestContractSavesMultipartRequiresRuntimeProfileForLegacyProjectionSystem(t
 	assertStatus(t, rr, http.StatusBadRequest)
 	assertJSONContentType(t, rr)
 }
+
+func TestRawSystemsAcceptTheirMeasuredSaves(t *testing.T) {
+	// Each row is a file measured on a real device; the extension and size are
+	// what the emulator actually wrote, not what the format allows in theory.
+	cases := []struct {
+		slug string
+		ext  string
+		size int
+		file string
+	}{
+		{slug: "ngp", ext: "flash", size: 536, file: "Baseball Stars - Pocket Sports Series (Japan, Europe) (En,Ja).flash"},
+		{slug: "virtualboy", ext: "srm", size: 65536, file: "3-D Tetris (USA).srm"},
+		{slug: "neogeo-cd", ext: "srm", size: 8192, file: "Choujin Gakuen - Gowcaizer ~ Voltage Fighter - Gowcaizer (World) (En,Ja).srm"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.slug, func(t *testing.T) {
+			if supportedSystemFromSlug(tc.slug) == nil {
+				t.Fatalf("system %q is not in the supported catalog", tc.slug)
+			}
+			profile, ok := legacyRawSaveProfiles[tc.slug]
+			if !ok {
+				t.Fatalf("no raw save validation profile for %q", tc.slug)
+			}
+			if _, ok := profile.AllowedExts[tc.ext]; !ok {
+				t.Fatalf("%s does not accept extension %q (only the measured save %q proves the system reachable)", tc.slug, tc.ext, tc.file)
+			}
+			if _, ok := profile.AllowedSizes[tc.size]; !ok {
+				t.Fatalf("%s does not accept size %d, the measured size of %q", tc.slug, tc.size, tc.file)
+			}
+		})
+	}
+}
