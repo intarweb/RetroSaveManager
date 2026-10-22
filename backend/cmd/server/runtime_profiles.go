@@ -323,7 +323,7 @@ func normalizeProjectionUpload(input saveCreateInput, requestedProfile string) (
 		return normalizeN64ProjectionUpload(input, profile)
 	case "nds":
 		return normalizeNDSProjectionUpload(input, profile)
-	case "saturn", "snes", "nes", "gameboy", "gba", "master-system", "genesis", "game-gear", "sega-cd", "sega-32x", "pc-engine", "atari-lynx", "wonderswan", "sg-1000", "colecovision", "atari-jaguar", "3do", "dreamcast":
+	case "saturn", "snes", "nes", "gameboy", "gba", "master-system", "genesis", "game-gear", "sega-cd", "sega-32x", "pc-engine", "atari-lynx", "wonderswan", "sg-1000", "colecovision", "atari-jaguar", "3do", "dreamcast", "ngp", "virtualboy", "neogeo-cd":
 		if strings.HasPrefix(profile, "port/") {
 			manifest, ok := nativePortManifestForRuntimeProfile(profile)
 			if !ok || manifest.OriginSystemSlug != systemSlug {

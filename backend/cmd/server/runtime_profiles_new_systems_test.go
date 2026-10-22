@@ -29,3 +29,21 @@ func TestNewSystemsAreProjectionCapable(t *testing.T) {
 		})
 	}
 }
+
+// Being projection-capable is necessary but not sufficient: the upload also has
+// to find an adapter path, or it 422s with "runtimeProfile is not supported".
+func TestNewSystemsAcceptTheirProjectionUpload(t *testing.T) {
+	cases := []struct{ slug, profile string }{
+		{slug: "ngp", profile: "ngp/mednafen"},
+		{slug: "virtualboy", profile: "virtualboy/mednafen"},
+		{slug: "neogeo-cd", profile: "neogeo-cd/retroarch"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.slug, func(t *testing.T) {
+			input := saveCreateInput{Filename: "test.srm", SystemSlug: tc.slug}
+			if _, err := normalizeProjectionUpload(input, tc.profile); err != nil {
+				t.Fatalf("%s %q must have an adapter path: %v", tc.slug, tc.profile, err)
+			}
+		})
+	}
+}
