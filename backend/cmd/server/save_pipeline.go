@@ -41,6 +41,7 @@ func (a *app) normalizeSaveInputDetailedWithOptions(input saveCreateInput, optio
 		TrustedHelperSystem:  input.TrustedHelperSystem,
 		DeclaredFallbackOnly: options.StoredSystemFallbackOnly,
 		TrustedStoredSystem:  metadataHasTrustedSystemEvidence(input.Metadata),
+		PSPSaveDataBundle:    isPSPSaveDataBundleMetadata(input.Metadata),
 	})
 	input.Metadata = mergeSystemDetectionMetadata(input.Metadata, detection)
 

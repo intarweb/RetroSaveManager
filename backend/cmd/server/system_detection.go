@@ -173,6 +173,7 @@ type saveSystemDetectionInput struct {
 	TrustedHelperSystem  bool
 	DeclaredFallbackOnly bool
 	TrustedStoredSystem  bool
+	PSPSaveDataBundle    bool
 }
 
 type saveDetectionEvidence struct {
@@ -269,7 +270,7 @@ func detectSaveSystem(input saveSystemDetectionInput) saveSystemDetectionResult 
 		}
 	}
 
-	if looksLikeExecutableOrArchivePayload(payload) {
+	if looksLikeExecutableOrArchivePayload(payload) && !input.PSPSaveDataBundle {
 		return saveSystemDetectionResult{
 			Slug:       "unknown-system",
 			System:     nil,
