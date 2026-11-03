@@ -362,3 +362,27 @@ func writeSonicRegion(payload []byte, offset int, region []byte, integrity uint1
 	binary.BigEndian.PutUint16(region[len(region)-2:], sonicSRAMChecksum(region[:len(region)-2]))
 	copy(payload[offset:], region)
 }
+
+// Genesis Plus GX's Sega CD RAM cart is one 512 KiB backup RAM image
+// (cart.brm / 4Mbit_cart.brm) holding every game's cart saves; it is a .brm
+// of that size or nothing.
+func TestNormalizeSaveInputAcceptsSegaCDRAMCartBackupRAM(t *testing.T) {
+	a := &app{}
+	input := saveCreateInput{
+		Filename:            "cart.brm",
+		Payload:             buildNonBlankPayload(512*1024, 0x07),
+		Game:                game{Name: "cart"},
+		Format:              "sram",
+		ROMSHA1:             "segacd-bram:retroarch:cart",
+		SlotName:            "default",
+		SystemSlug:          "sega-cd",
+		TrustedHelperSystem: true,
+	}
+	if result := a.normalizeSaveInputDetailed(input); result.Rejected {
+		t.Fatalf("expected the RAM cart backup RAM to be accepted, got reject=%q", result.RejectReason)
+	}
+	input.Filename = "cart.srm"
+	if result := a.normalizeSaveInputDetailed(input); !result.Rejected {
+		t.Fatal("expected a 512 KiB .srm to stay refused: only a .brm is a RAM cart image")
+	}
+}

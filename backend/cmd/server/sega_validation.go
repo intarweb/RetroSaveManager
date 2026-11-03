@@ -187,6 +187,7 @@ func validateStrictSegaRawSave(input saveCreateInput, detection saveSystemDetect
 		ParserID:             "sega-raw-sram",
 		AllowedExts:          strictSegaRawExtensions(systemSlug),
 		AllowedSizes:         strictSegaRawSaveSizes,
+		AllowedSizesByExt:    strictSegaRawSizesByExt(systemSlug),
 		RequireROMSHA1:       true,
 		RequireDeclared:      true,
 		RequireHelperOrStore: true,
@@ -212,6 +213,20 @@ func strictSegaRawExtensions(systemSlug string) map[string]struct{} {
 		extensions["bkr"] = struct{}{}
 	}
 	return extensions
+}
+
+// strictSegaRawSizesByExt adds Genesis Plus GX's Sega CD RAM cart: one 512 KiB
+// backup RAM image (cart.brm, 4Mbit_cart.brm) holding every game's cart saves.
+// Only a .brm may be that size; the other extensions keep the cartridge sizes.
+func strictSegaRawSizesByExt(systemSlug string) map[string]func(int) bool {
+	if canonicalSegment(systemSlug, "") != "sega-cd" {
+		return nil
+	}
+	return map[string]func(int) bool{
+		"brm": func(size int) bool {
+			return size == 512*1024 || isPlausibleStrictSegaRawSaveSize(size)
+		},
+	}
 }
 
 func isPlausibleStrictSegaRawSaveSize(size int) bool {
