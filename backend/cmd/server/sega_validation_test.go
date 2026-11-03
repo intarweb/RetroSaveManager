@@ -362,3 +362,24 @@ func writeSonicRegion(payload []byte, offset int, region []byte, integrity uint1
 	binary.BigEndian.PutUint16(region[len(region)-2:], sonicSRAMChecksum(region[:len(region)-2]))
 	copy(payload[offset:], region)
 }
+
+// Genesis Plus GX keeps its Sega CD RAM cart as one 512 KiB image, while a
+// Genesis cartridge's SRAM tops out at 128 KiB. The size rule has to accept
+// both without letting one system's size through for the other.
+func TestSegaCdRamCartIsAcceptedAndCartridgeIsNot(t *testing.T) {
+	segaCD := strictSegaRawSizeRules("sega-cd")
+	genesis := strictSegaRawSizeRules("genesis")
+
+	if fn, ok := segaCD["brm"]; !ok || !fn(512*1024) {
+		t.Error("a 512 KiB .brm is a Sega CD RAM cart and must be accepted for sega-cd")
+	}
+	if !genesis["brm"](128 * 1024) {
+		t.Error("a 128 KiB .brm is a cartridge SRAM and must stay accepted")
+	}
+	if genesis["brm"](512 * 1024) {
+		t.Error("a 512 KiB .brm is not a Genesis cartridge save and must be refused")
+	}
+	if segaCD["srm"](512 * 1024) {
+		t.Error("only .brm gets the RAM cart size; a 512 KiB .srm is still refused")
+	}
+}

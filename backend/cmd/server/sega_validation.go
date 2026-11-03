@@ -186,7 +186,7 @@ func validateStrictSegaRawSave(input saveCreateInput, detection saveSystemDetect
 		DisplayName:          systemSlug,
 		ParserID:             "sega-raw-sram",
 		AllowedExts:          strictSegaRawExtensions(systemSlug),
-		AllowedSizesByExt:    strictSegaRawSizeRules(),
+		AllowedSizesByExt:    strictSegaRawSizeRules(systemSlug),
 		RequireROMSHA1:       true,
 		RequireDeclared:      true,
 		RequireHelperOrStore: true,
@@ -218,15 +218,23 @@ func strictSegaRawExtensions(systemSlug string) map[string]struct{} {
 // System cart with a short header, 2114 and 16128 on Genesis carts. Only a
 // power-of-two table called those unrecognised, and a save the client can read
 // perfectly well was refused as an unknown format.
-func strictSegaRawSizeRules() map[string]func(int) bool {
+func strictSegaRawSizeRules(systemSlug string) map[string]func(int) bool {
 	inRange := func(n int) bool { return n >= 64 && n <= 131_072 }
-	return map[string]func(int) bool{
+	rules := map[string]func(int) bool{
 		"sav": inRange,
 		"srm": inRange,
 		"ram": inRange,
 		"brm": inRange,
 		"bkr": inRange,
 	}
+	// Genesis Plus GX also keeps its Sega CD RAM cart as one 512 KiB image
+	// (cart.brm, 4Mbit_cart.brm) holding every game's cart saves. No Genesis
+	// cart carries one: a cartridge's SRAM tops out at 128 KiB, so the two
+	// images cannot be confused by size, and only sega-cd widens its .brm.
+	if canonicalSegment(systemSlug, "") == "sega-cd" {
+		rules["brm"] = func(n int) bool { return n == 512*1024 || inRange(n) }
+	}
+	return rules
 }
 
 func isStrictSegaRawExtension(ext string) bool {
